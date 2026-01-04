@@ -49,29 +49,6 @@ class FileFormatLayer:
         with open(json_file_path, "r", encoding="utf-8") as json_file:
             return json.load(json_file)
 
-    @staticmethod
-    def save_arithmetic_payload(payload, output_file_path):
-        """Lưu dữ liệu nén Arithmetic (range coder 32-bit) ra JSON."""
-        serializable_payload = {
-            "algorithm": "ArithmeticRange32",
-            "length": payload["length"],
-            "freqs": payload["freqs"],
-            "cum": payload["cum"],
-            "total": payload["total"],
-            "bits": payload["bits"],
-            "padding": payload["padding"],
-        }
-        with open(output_file_path, "w", encoding="utf-8") as json_file:
-            json.dump(serializable_payload, json_file, indent=4, ensure_ascii=False)
-
-    @staticmethod
-    def load_arithmetic_payload(json_file_path):
-        """Đọc dữ liệu nén Arithmetic từ JSON."""
-        with open(json_file_path, "r", encoding="utf-8") as json_file:
-            arithmetic_payload = json.load(json_file)
-        return arithmetic_payload
-
-
 class CompressionCore:
     """Cài đặt các thuật toán nén/giải nén và tính toán lý thuyết."""
 
@@ -148,23 +125,7 @@ class CompressionCore:
             )
         }
 
-    def arithmetic_analysis(self, input_text):
-        """Tính số bit lý thuyết cho Arithmetic Coding (cộng thêm overhead)."""
-        frequency_table = self.get_frequency_table(input_text)
-        total_characters = len(input_text)
-        theoretical_bits = 0
-
-        for character in input_text:
-            probability = frequency_table[character] / total_characters
-            theoretical_bits -= math.log2(probability)
-
-        # Thêm phần overhead thực tế (2–4 bit cho toàn bộ file, lấy 2 cho đơn giản)
-        actual_bits = theoretical_bits + 2
-        return math.ceil(actual_bits)
-
-    def calculate_theoretical_metrics(
-        self, input_text, codes=None, is_arithmetic=False
-    ):
+    def calculate_theoretical_metrics(self, input_text, codes):
         """Tính entropy, độ dài mã trung bình và hiệu suất."""
         frequency_table = self.get_frequency_table(input_text)
         total_characters = len(input_text)
@@ -176,15 +137,13 @@ class CompressionCore:
             for frequency in frequency_table.values()
         )
 
-        if is_arithmetic:
-            total_bits = self.arithmetic_analysis(input_text)
-            average_code_length = total_bits / total_characters
-        else:
-            average_code_length = sum(
-                (frequency_table[character] / total_characters)
-                * len(codes[character])
-                for character in frequency_table
-            )
+        if not codes:
+            raise ValueError("Cần cung cấp bảng mã để tính toán chỉ số.")
+
+        average_code_length = sum(
+            (frequency_table[character] / total_characters) * len(codes[character])
+            for character in frequency_table
+        )
 
         compression_efficiency = (
             (entropy_value / average_code_length) * 100
@@ -228,165 +187,4 @@ class CompressionCore:
     def decode_text(self, bit_stream, code_table):
         """Giải mã chuỗi bit về văn bản gốc."""
         return self.decode_bitstring(bit_stream, code_table)
-
-    def arithmetic_encode(self, input_text):
-        """Nén bằng range coder 32-bit đơn giản (không dùng Decimal)."""
-        frequency_table = Counter(input_text)
-        sorted_symbols = sorted(frequency_table)
-
-        cumulative_frequency_table = {}
-        total_frequency = 0
-        for symbol in sorted_symbols:
-            cumulative_frequency_table[symbol] = total_frequency
-            total_frequency += frequency_table[symbol]
-
-        low_bound, high_bound = 0, (1 << 32) - 1
-        most_significant_bit = 1 << 31
-        current_low, current_high = low_bound, high_bound
-        encoded_bits = []
-
-        for character in input_text:
-            range_width = current_high - current_low + 1
-            current_high = (
-                current_low
-                + (
-                    range_width
-                    * (
-                        cumulative_frequency_table[character]
-                        + frequency_table[character]
-                    )
-                    // total_frequency
-                )
-                - 1
-            )
-            current_low = (
-                current_low
-                + (
-                    range_width
-                    * cumulative_frequency_table[character]
-                    // total_frequency
-                )
-            )
-
-            # Chuẩn hóa khi interval nằm cùng phía MSB
-            while True:
-                if current_high < most_significant_bit:
-                    encoded_bits.append("0")
-                    current_low = (current_low << 1) & high_bound
-                    current_high = ((current_high << 1) | 1) & high_bound
-                elif current_low >= most_significant_bit:
-                    encoded_bits.append("1")
-                    current_low = (
-                        (current_low - most_significant_bit) << 1
-                    ) & high_bound
-                    current_high = (
-                        ((current_high - most_significant_bit) << 1) | 1
-                    ) & high_bound
-                else:
-                    break
-
-        # Đẩy thêm 32 bit để chốt khoảng
-        for _ in range(32):
-            encoded_bits.append("1" if (current_low & most_significant_bit) else "0")
-            current_low = (current_low << 1) & high_bound
-
-        bit_stream = "".join(encoded_bits)
-        padding_bits = (8 - (len(bit_stream) % 8)) % 8
-        if padding_bits:
-            bit_stream += "0" * padding_bits
-
-        return {
-            "algorithm": "ArithmeticRange32",
-            "length": len(input_text),
-            "freqs": {
-                symbol: int(frequency) for symbol, frequency in frequency_table.items()
-            },
-            "cum": {
-                symbol: int(frequency)
-                for symbol, frequency in cumulative_frequency_table.items()
-            },
-            "total": int(total_frequency),
-            "bits": bit_stream,
-            "padding": padding_bits,
-        }
-
-    def arithmetic_decode(self, payload):
-        """Giải nén dữ liệu range coder 32-bit đơn giản."""
-        expected_length = payload["length"]
-        frequency_table = payload["freqs"]
-        cumulative_frequency_table = payload["cum"]
-        total_frequency = payload["total"]
-        bit_stream = payload["bits"]
-        padding_bits = payload.get("padding", 0)
-
-        if padding_bits:
-            bit_stream = bit_stream[:-padding_bits]
-
-        low_bound, high_bound = 0, (1 << 32) - 1
-        most_significant_bit = 1 << 31
-        sorted_symbols = sorted(frequency_table)
-
-        # Lấy 32 bit đầu tiên để khởi tạo giá trị giải mã
-        initial_value_bits = bit_stream[:32].ljust(32, "0")
-        bit_index = 32
-        current_value = int(initial_value_bits, 2)
-
-        current_low, current_high = low_bound, high_bound
-        decoded_symbols = []
-
-        for _ in range(expected_length):
-            range_width = current_high - current_low + 1
-            scaled_value = (
-                ((current_value - current_low + 1) * total_frequency - 1)
-                // range_width
-            )
-
-            # Tìm ký tự phù hợp với scaled_value trong bảng tích lũy
-            for symbol in sorted_symbols:
-                if (
-                    cumulative_frequency_table[symbol]
-                    <= scaled_value
-                    < cumulative_frequency_table[symbol] + frequency_table[symbol]
-                ):
-                    decoded_symbols.append(symbol)
-                    current_high = (
-                        current_low
-                        + (
-                            range_width
-                            * (
-                                cumulative_frequency_table[symbol]
-                                + frequency_table[symbol]
-                            )
-                            // total_frequency
-                        )
-                        - 1
-                    )
-                    current_low = (
-                        current_low
-                        + (
-                            range_width
-                            * cumulative_frequency_table[symbol]
-                            // total_frequency
-                        )
-                    )
-                    break
-
-            # Chuẩn hóa giống bước encode
-            while True:
-                if current_high < most_significant_bit:
-                    pass
-                elif current_low >= most_significant_bit:
-                    current_low -= most_significant_bit
-                    current_high -= most_significant_bit
-                    current_value -= most_significant_bit
-                else:
-                    break
-
-                current_low = (current_low << 1) & high_bound
-                current_high = ((current_high << 1) | 1) & high_bound
-                next_bit = int(bit_stream[bit_index]) if bit_index < len(bit_stream) else 0
-                bit_index += 1
-                current_value = ((current_value << 1) & high_bound) | next_bit
-
-        return "".join(decoded_symbols)
 

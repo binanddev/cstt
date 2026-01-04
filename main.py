@@ -1,6 +1,5 @@
 
 import os
-import json
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from core import CompressionCore, FileFormatLayer
@@ -12,8 +11,8 @@ class CompressionApp:
     def __init__(self, root_window):
         """Khởi tạo ứng dụng và dựng giao diện."""
         self.root_window = root_window
-        self.root_window.title("Shannon-Fano, Huffman & Arithmetic Coding")
-        self.root_window.geometry("650x520")
+        self.root_window.title("Shannon-Fano & Huffman Coding")
+        self.root_window.geometry("650x500")
 
         # Lớp lõi xử lý thuật toán
         self.compression_core = CompressionCore()
@@ -54,7 +53,7 @@ class CompressionApp:
         ttk.Combobox(
             self.root_window,
             textvariable=self.algorithm_var,
-            values=["Huffman", "Shannon-Fano", "Arithmetic"],
+            values=["Huffman", "Shannon-Fano"],
             state="readonly",
         ).pack()
 
@@ -118,15 +117,10 @@ class CompressionApp:
     def browse_primary_file(self):
         """Mở hộp thoại chọn file chính tùy theo chế độ/thuật toán."""
         operation_mode = self.operation_mode_var.get()
-        algorithm_name = self.algorithm_var.get()
         if operation_mode == "Encode":
             filetypes = [("Text files", "*.txt")]
         else:
-            filetypes = (
-                [("Arithmetic JSON", "*.json")]
-                if algorithm_name == "Arithmetic"
-                else [("Binary files", "*.bin")]
-            )
+            filetypes = [("Binary files", "*.bin")]
 
         selected_path = filedialog.askopenfilename(filetypes=filetypes)
         if selected_path:
@@ -136,8 +130,7 @@ class CompressionApp:
     def browse_auxiliary_file(self):
         """Mở hộp thoại chọn file phụ (bảng mã) cho chế độ Decode."""
         operation_mode = self.operation_mode_var.get()
-        algorithm_name = self.algorithm_var.get()
-        if operation_mode == "Encode" or algorithm_name == "Arithmetic":
+        if operation_mode == "Encode":
             messagebox.showinfo("Thông tin", "Không cần file phụ trong chế độ hiện tại.")
             return
 
@@ -156,12 +149,6 @@ class CompressionApp:
         if operation_mode == "Encode":
             self.primary_input_label.config(text="File văn bản (.txt):")
             self.secondary_input_label.config(text="Bảng mã (.json) – không cần cho Encode")
-            self.auxiliary_file_entry.configure(state="normal")
-            self.auxiliary_file_entry.delete(0, tk.END)
-            self.auxiliary_file_entry.configure(state="disabled")
-        elif algorithm_name == "Arithmetic":
-            self.primary_input_label.config(text="File arithmetic.json:")
-            self.secondary_input_label.config(text="Không cần file phụ cho Arithmetic Decode")
             self.auxiliary_file_entry.configure(state="normal")
             self.auxiliary_file_entry.delete(0, tk.END)
             self.auxiliary_file_entry.configure(state="disabled")
@@ -198,40 +185,26 @@ class CompressionApp:
                 )
                 os.makedirs(output_directory, exist_ok=True)
 
-                # Thực hiện encode tùy thuật toán
-                if algorithm_name == "Arithmetic":
-                    arithmetic_payload = self.compression_core.arithmetic_encode(source_text)
-                    arithmetic_json_path = os.path.join(output_directory, "arithmetic.json")
-                    FileFormatLayer.save_arithmetic_payload(
-                        arithmetic_payload, arithmetic_json_path
+                # Thực hiện encode
+                encoded_bit_stream, code_table = self.compression_core.encode_text(
+                    source_text, algorithm_name
+                )
+                binary_output_path = os.path.join(output_directory, "data.bin")
+                code_table_json_path = os.path.join(output_directory, "code_table.json")
+                FileFormatLayer.save_bitstream(encoded_bit_stream, binary_output_path)
+                FileFormatLayer.save_code_table(code_table, code_table_json_path)
+                entropy_value, average_code_length, compression_efficiency = (
+                    self.compression_core.calculate_theoretical_metrics(
+                        source_text, codes=code_table
                     )
-                    entropy_value, average_code_length, compression_efficiency = (
-                        self.compression_core.calculate_theoretical_metrics(
-                            source_text, is_arithmetic=True
-                        )
-                    )
-                    compressed_size_bytes = os.path.getsize(arithmetic_json_path)
-                    compressed_info_text = f"File nén: {arithmetic_json_path} ({compressed_size_bytes} bytes)"
-                else:
-                    encoded_bit_stream, code_table = self.compression_core.encode_text(
-                        source_text, algorithm_name
-                    )
-                    binary_output_path = os.path.join(output_directory, "data.bin")
-                    code_table_json_path = os.path.join(output_directory, "code_table.json")
-                    FileFormatLayer.save_bitstream(encoded_bit_stream, binary_output_path)
-                    FileFormatLayer.save_code_table(code_table, code_table_json_path)
-                    entropy_value, average_code_length, compression_efficiency = (
-                        self.compression_core.calculate_theoretical_metrics(
-                            source_text, codes=code_table
-                        )
-                    )
-                    compressed_size_bytes = os.path.getsize(binary_output_path) + os.path.getsize(
-                        code_table_json_path
-                    )
-                    compressed_info_text = (
-                        f"File nén: {binary_output_path} + {code_table_json_path} "
-                        f"(tổng {compressed_size_bytes} bytes)"
-                    )
+                )
+                compressed_size_bytes = os.path.getsize(binary_output_path) + os.path.getsize(
+                    code_table_json_path
+                )
+                compressed_info_text = (
+                    f"File nén: {binary_output_path} + {code_table_json_path} "
+                    f"(tổng {compressed_size_bytes} bytes)"
+                )
 
                 original_file_size = os.path.getsize(input_file_path)
                 saving_ratio_percent = (1 - compressed_size_bytes / original_file_size) * 100
@@ -259,20 +232,16 @@ class CompressionApp:
                 os.makedirs(output_directory, exist_ok=True)
                 decoded_output_path = os.path.join(output_directory, "decoded.txt")
 
-                # Thực hiện decode tùy thuật toán
-                if algorithm_name == "Arithmetic":
-                    arithmetic_payload = FileFormatLayer.load_arithmetic_payload(input_file_path)
-                    decoded_text = self.compression_core.arithmetic_decode(arithmetic_payload)
-                else:
-                    code_table_path = self.auxiliary_file_entry.get()
-                    if not code_table_path or not os.path.exists(code_table_path):
-                        messagebox.showerror("Lỗi", "Cần chọn file code_table.json hợp lệ!")
-                        return
-                    loaded_bit_stream = FileFormatLayer.load_bitstream(input_file_path)
-                    loaded_code_table = FileFormatLayer.load_code_table(code_table_path)
-                    decoded_text = self.compression_core.decode_text(
-                        loaded_bit_stream, loaded_code_table
-                    )
+                # Thực hiện decode
+                code_table_path = self.auxiliary_file_entry.get()
+                if not code_table_path or not os.path.exists(code_table_path):
+                    messagebox.showerror("Lỗi", "Cần chọn file code_table.json hợp lệ!")
+                    return
+                loaded_bit_stream = FileFormatLayer.load_bitstream(input_file_path)
+                loaded_code_table = FileFormatLayer.load_code_table(code_table_path)
+                decoded_text = self.compression_core.decode_text(
+                    loaded_bit_stream, loaded_code_table
+                )
 
                 with open(decoded_output_path, "w", encoding="utf-8") as output_text_file:
                     output_text_file.write(decoded_text)
