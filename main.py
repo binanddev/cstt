@@ -143,7 +143,7 @@ class CompressionApp:
                 f"Ký tự đã xử lý: {len(source_text)}\n"
                 f"Entropy nguồn (H): {entropy_value:.4f} bit/ký tự\n"
                 f"Độ dài mã TB (L):  {average_code_length:.4f} bit/ký tự\n"
-                f"Hiệu suất nén (η): {compression_efficiency:.2f}%\n"
+                f"Hiệu suất nén thống kê (Kt): {compression_efficiency:.2f}%\n"
                 f"-----------------------------------\n"
                 f"Kích thước file gốc: {original_file_size} bytes\n"
                 f"{compressed_info_text}\n"
