@@ -156,22 +156,6 @@ class CompressionCore:
         """Chuyển văn bản sang chuỗi bit dựa trên bảng mã."""
         return "".join(code_table[character] for character in input_text)
 
-    def decode_bitstring(self, bit_stream, code_table):
-        """Chuyển chuỗi bit về văn bản dựa trên bảng mã."""
-        reversed_code_table = {
-            code_bits: character for character, code_bits in code_table.items()
-        }
-        decoding_buffer = ""
-        decoded_characters = []
-
-        for bit in bit_stream:
-            decoding_buffer += bit
-            if decoding_buffer in reversed_code_table:
-                decoded_characters.append(reversed_code_table[decoding_buffer])
-                decoding_buffer = ""
-
-        return "".join(decoded_characters)
-
     def encode_text(self, input_text, algorithm_name):
         """Encode văn bản bằng Huffman hoặc Shannon-Fano, trả về chuỗi bit và bảng mã."""
         if algorithm_name == "Huffman":
@@ -183,8 +167,4 @@ class CompressionCore:
 
         bit_stream = self.build_bitstring(input_text, code_table)
         return bit_stream, code_table
-
-    def decode_text(self, bit_stream, code_table):
-        """Giải mã chuỗi bit về văn bản gốc."""
-        return self.decode_bitstring(bit_stream, code_table)
 
