@@ -23,31 +23,10 @@ class FileFormatLayer:
             binary_file.write(byte_array)
 
     @staticmethod
-    def load_bitstream(binary_file_path):
-        """Đọc chuỗi bit từ file .bin, trả về chuỗi bit đã bỏ padding."""
-        with open(binary_file_path, "rb") as binary_file:
-            padding_raw = binary_file.read(1)
-            if not padding_raw:
-                return ""
-            padding_bits = padding_raw[0]
-            binary_data = binary_file.read()
-
-        bit_stream = "".join(f"{byte_value:08b}" for byte_value in binary_data)
-        if padding_bits > 0:
-            bit_stream = bit_stream[:-padding_bits]
-        return bit_stream
-
-    @staticmethod
     def save_code_table(code_table, output_file_path):
         """Lưu bảng mã (mapping ký tự -> chuỗi bit) dạng JSON."""
         with open(output_file_path, "w", encoding="utf-8") as json_file:
             json.dump(code_table, json_file, indent=4, ensure_ascii=False)
-
-    @staticmethod
-    def load_code_table(json_file_path):
-        """Đọc bảng mã từ file JSON."""
-        with open(json_file_path, "r", encoding="utf-8") as json_file:
-            return json.load(json_file)
 
 class CompressionCore:
     """Cài đặt các thuật toán nén/giải nén và tính toán lý thuyết."""
@@ -58,22 +37,24 @@ class CompressionCore:
         return Counter(input_text)
 
     def shannon_fano_encode(self, input_text):
-        """Sinh bảng mã Shannon-Fano."""
+        #không có input thì trả về rỗng
         if not input_text:
             return {}
 
         frequency_table = sorted(
             self.get_frequency_table(input_text).items(),
             key=lambda item: item[1],
-            reverse=True,
+            #xếp theo tần suất giảm dần
+            reverse=True, 
         )
+        #tạo bảng mã rỗng cho các kí tự
         code_table = {symbol: "" for symbol, _ in frequency_table}
 
         def recursive_split(items):
-            """Chia đôi danh sách theo tổng tần suất gần bằng nhau."""
+            # điều kiện dừng
             if len(items) <= 1:
                 return
-
+            #chia đôi để xác suất trên bằng xác suất dưới
             total_frequency = sum(frequency for _, frequency in items)
             split_index, current_sum, min_difference = 1, 0, total_frequency
 
@@ -96,27 +77,31 @@ class CompressionCore:
         return code_table
 
     def huffman_encode(self, input_text):
-        """Sinh bảng mã Huffman chuẩn bằng heap."""
+        
         if not input_text:
             return {}
-
+        # khởi tạo cây nhị phân 
         frequency_table = self.get_frequency_table(input_text)
         heap = [[weight, [symbol, ""]] for symbol, weight in frequency_table.items()]
         heapq.heapify(heap)
 
         # Ghép hai node tần suất nhỏ nhất cho tới khi còn một cây
         while len(heap) > 1:
+            # lấy 2 node tần suất nhỏ nhất
             low_node, high_node = heapq.heappop(heap), heapq.heappop(heap)
+            # gán bit 0 cho nửa đầu, 1 cho nửa sau
             for symbol_pair in low_node[1:]:
                 symbol_pair[1] = "0" + symbol_pair[1]
+            # gán bit 1 cho nửa sau
             for symbol_pair in high_node[1:]:
                 symbol_pair[1] = "1" + symbol_pair[1]
+            # thêm node mới vào heap
             heapq.heappush(
                 heap,
                 [low_node[0] + high_node[0]] + low_node[1:] + high_node[1:],
             )
 
-        # Sắp xếp để kết quả nhất quán
+        # trả về: {'C': '0', 'A': '10', 'B': '11'}
         result_nodes = heapq.heappop(heap)[1:]
         return {
             symbol: code_bits
@@ -127,7 +112,9 @@ class CompressionCore:
 
     def calculate_theoretical_metrics(self, input_text, codes):
         """Tính entropy, độ dài mã trung bình và hiệu suất."""
+        # tạo bảng tần suất
         frequency_table = self.get_frequency_table(input_text)
+        # tổng số kí tự
         total_characters = len(input_text)
 
         # Entropy theo định nghĩa Shannon
@@ -139,12 +126,12 @@ class CompressionCore:
 
         if not codes:
             raise ValueError("Cần cung cấp bảng mã để tính toán chỉ số.")
-
+        # tính độ dài mã trung bình
         average_code_length = sum(
             (frequency_table[character] / total_characters) * len(codes[character])
             for character in frequency_table
         )
-
+        # tính hiệu suất nén thống kê
         compression_efficiency = (
             (entropy_value / average_code_length) * 100
             if average_code_length > 0
